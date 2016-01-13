@@ -1,18 +1,47 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import warnings
 
 from .dist_math import *
+from . import ChiSquared, Normal
+from .. import Deterministic
 
 import numpy as np
+import scipy
 from . import transforms
 
 from theano.tensor.nlinalg import det, matrix_inverse, trace, eigh
-from theano.tensor import dot, cast, eye, diag, eq, le, ge, gt, all
+from theano.tensor import dot, cast, eye, diag, eq, le, ge, gt, all, zeros, sqrt, set_subtensor
 from theano.printing import Print
 from pymc3.distributions.distribution import draw_values, generate_samples
 import scipy.stats as st
 import numpy.random as nr
 
-__all__ = ['MvNormal', 'Dirichlet', 'Multinomial', 'Wishart', 'LKJCorr']
+__all__ = ['MvNormal', 'Dirichlet', 'Multinomial', 'Wishart', 'WishartBartlett', 'LKJCorr']
+
+import warnings
+
+def infer_shape(param, kwargs):
+    shape = kwargs.get('shape', None)
+    if shape is not None:
+        warnings.warn('Explicitly specifying the shape argument will be deprecated. Shape will be inferred from the input variables as well as the new tile keyword argument.',
+                      PendingDeprecationWarning)
+        shape = np.atleast_1d(shape)
+
+    tile = kwargs.pop('tile', ())
+
+    if shape is None:
+        if isinstance(param, (float, int)):
+            shape = ()
+        else:
+            shape = np.asarray(param).shape
+
+    inferred_shape = np.concatenate([np.atleast_1d(tile), shape])
+    if len(inferred_shape) == 0:
+        inferred_shape = np.array([1])
+
+    return np.int8(inferred_shape)
 
 class MvNormal(Continuous):
     """
@@ -29,6 +58,8 @@ class MvNormal(Continuous):
         2 array of floats
     """
     def __init__(self, mu, tau, *args, **kwargs):
+        kwargs['shape'] = infer_shape(mu, kwargs)
+
         super(MvNormal, self).__init__(*args, **kwargs)
         self.mean = self.median = self.mode = self.mu = mu
         self.tau = tau
@@ -99,7 +130,7 @@ class Dirichlet(Continuous):
                                    dist_shape=self.shape,
                                    size=size)
         return samples
-    
+
     def logp(self, value):
         k = self.k
         a = self.a
@@ -152,7 +183,7 @@ class Multinomial(Discrete):
         if size == p.shape:
             size = None
         return nr.multinomial(n, p, size=size)
-    
+
     def random(self, point=None, size=None):
         n, p = draw_values([self.n, self.p], point=point)
         samples = generate_samples(self._random, n, p,
@@ -223,6 +254,62 @@ class Wishart(Continuous):
             all(gt(eigh(X)[0], 0)),
             eq(X, X.T)
         )
+
+def WishartBartlett(name, S, nu, is_cholesky=False, return_cholesky=False):
+    """
+    Bartlett decomposition of the Wishart distribution. As the Wishart
+    distribution requires the matrix to be symmetric positive semi-definite
+    it is impossible for MCMC to ever propose acceptable matrices.
+
+    Instead, we can use the Barlett decomposition which samples a lower
+    diagonal matrix. Specifically:
+
+    If L ~ [[sqrt(c_1), 0, ...],
+             [z_21, sqrt(c_1), 0, ...],
+             [z_31, z32, sqrt(c3), ...]]
+    with c_i ~ Chi²(n-i+1) and n_ij ~ N(0, 1), then
+    L * A * A.T * L.T ~ Wishart(L * L.T, nu)
+
+    See http://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition
+    for more information.
+
+    :Parameters:
+      S : ndarray
+        p x p positive definite matrix
+        Or:
+        p x p lower-triangular matrix that is the Cholesky factor
+        of the covariance matrix.
+      nu : int
+        Degrees of freedom, > dim(S).
+      is_cholesky : bool (default=False)
+        Input matrix S is already Cholesky decomposed as S.T * S
+      return_cholesky : bool (default=False)
+        Only return the Cholesky decomposed matrix.
+
+    :Note:
+      This is not a standard Distribution class but follows a similar
+      interface. Besides the Wishart distribution, it will add RVs
+      c and z to your model which make up the matrix.
+    """
+
+    L = S if is_cholesky else scipy.linalg.cholesky(S)
+
+    diag_idx = np.diag_indices_from(S)
+    tril_idx = np.tril_indices_from(S, k=-1)
+    n_diag = len(diag_idx[0])
+    n_tril = len(tril_idx[0])
+    c = sqrt(ChiSquared('c', nu - np.arange(2, 2+n_diag), shape=n_diag))
+    z = Normal('z', 0, 1, shape=n_tril)
+    # Construct A matrix
+    A = zeros(S.shape, dtype=np.float32)
+    A = set_subtensor(A[diag_idx], c)
+    A = set_subtensor(A[tril_idx], z)
+
+    # L * A * A.T * L.T ~ Wishart(L*L.T, nu)
+    if return_cholesky:
+        return Deterministic(name, dot(L, A))
+    else:
+        return Deterministic(name, dot(dot(dot(L, A), A.T), L.T))
 
 
 class LKJCorr(Continuous):

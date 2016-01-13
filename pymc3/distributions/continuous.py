@@ -128,6 +128,28 @@ class Flat(Continuous):
     def logp(self, value):
         return zeros_like(value)
 
+import warnings
+
+def infer_shape(param, kwargs):
+    shape = kwargs.get('shape', None)
+    if shape is not None:
+        warnings.warn('Explicitly specifying the shape argument will be deprecated. Shape will be inferred from the input variables as well as the new tile keyword argument.',
+                      PendingDeprecationWarning)
+        shape = np.atleast_1d(shape)
+
+    tile = kwargs.pop('tile', ())
+
+    if shape is None:
+        if isinstance(param, (float, int)):
+            shape = ()
+        else:
+            shape = np.asarray(param).shape
+
+    inferred_shape = np.concatenate([np.atleast_1d(tile), shape])
+    if len(inferred_shape) == 0:
+        inferred_shape = np.array([1])
+
+    return np.int8(inferred_shape)
 
 class Normal(Continuous):
     """
@@ -152,6 +174,7 @@ class Normal(Continuous):
 
     """
     def __init__(self, mu=0.0, tau=None, sd=None, *args, **kwargs):
+        kwargs['shape'] = infer_shape(mu, kwargs)
         super(Normal, self).__init__(*args, **kwargs)
         self.mean = self.median = self.mode = self.mu = mu
         self.tau, self.sd = get_tau_sd(tau=tau, sd=sd)
@@ -446,7 +469,7 @@ class Lognormal(PositiveContinuous):
     distributed. A variable might be modeled as log-normal if it can
     be thought of as the multiplicative product of many small
     independent factors.,
-                                       
+
 
     .. math::
         f(x \mid \mu, \tau) = \sqrt{\frac{\tau}{2\pi}}\frac{
@@ -845,7 +868,7 @@ class Weibull(PositiveContinuous):
     def random(self, point=None, size=None, repeat=None):
         alpha, beta = draw_values([self.alpha, self.beta],
                                   point=point)
-        return generate_samples(lambda a, b, size=None: b * (-np.log(nr.uniform(size=size))) ** a, 
+        return generate_samples(lambda a, b, size=None: b * (-np.log(nr.uniform(size=size))) ** a,
                                 alpha, beta,
                                 dist_shape=self.shape,
                                 size=size)

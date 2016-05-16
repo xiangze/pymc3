@@ -20,6 +20,7 @@ install:
   - pip install git+https://github.com/Theano/Theano.git
   - pip install git+https://github.com/mahmoudimus/nose-timer.git
   - python setup.py build_ext --inplace
+  - echo 'backend: agg' > $HOME/.matplotlib/matplotlibrc
 
 env:
   - TESTCMD=" -vv --with-timer -e test_examples -e test_distributions"

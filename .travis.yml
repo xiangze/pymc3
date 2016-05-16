@@ -9,7 +9,7 @@ before_install:
   - chmod +x miniconda.sh
   - ./miniconda.sh -b
   - if [ ${TRAVIS_PYTHON_VERSION:0:1} == "2" ]; then export PATH=/home/travis/miniconda2/bin:$PATH; else export PATH=/home/travis/miniconda3/bin:$PATH; fi
-  - mkdir -p $HOME/.config/matplotlib && \
+  - mkdir -p $HOME/.config/matplotlib
   - echo 'backend: agg' > $HOME/.config/matplotlib/matplotlibrc
 
 install:

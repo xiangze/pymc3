@@ -7,15 +7,13 @@ from theano.tensor import maximum, minimum, sgn, ceil, floor
 from theano.tensor.nlinalg import det, matrix_inverse, extract_diag, matrix_dot, trace
 from theano.tensor.nnet import sigmoid
 import theano
+from theano import ifelse
 import theano.tensor as tt
 import sys
 
 def invlogit(x):
     x_max = -tt.log(sys.float_info.epsilon)
-    if (x > x_max): 
-        return 1.0
-    elif (x < 1-x_max): 
-        return 0.0
+    x = ifelse(tt.gt(x, x_max), 1.0, ifelse(tt.lt(x, 1-x_max), 0.0, x))
     return 1/(1 + tt.exp(-x))
     
 def logit(p):

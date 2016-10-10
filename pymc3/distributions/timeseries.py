@@ -2,7 +2,7 @@ import theano.tensor as tt
 from theano import scan
 
 from .continuous import Normal, Flat
-from .distribution import Continuous
+from .distribution import Continuous,Discrete,Multinominal,Categorical
 
 __all__ = ['AR1', 'GaussianRandomWalk', 'GARCH11']
 
@@ -121,3 +121,41 @@ class GARCH11(Continuous):
         vol = self._get_volatility(x[:-1])
         return (Normal.dist(0., sd=self.initial_vol).logp(x[0]) +
                 tt.sum(Normal.dist(0, sd=vol).logp(x[1:])))
+
+""" Hidden Markov Model
+    x_t = trans*x_{t-1}
+    y_t = sigma_t * z_t
+    sigma_t^2 = omega + alpha_1 * y_{t-1}^2 + beta_1 * sigma_{t-1}^2
+
+    with z_t iid and Normal with mean zero and unit standard deviation.
+
+    Parameters
+    ----------
+    trans : distribution
+        transition matrix
+    h : hidden variables (discrete)
+    sd : tensor
+        sd > 0, innovation standard deviation (alternative to specifying tau)
+    sc : tensor
+        sc > 0, observation  standard deviation
+"""
+class HMM_naive(Discrete):
+    def __init__(self,phi,theta):
+        self.phi=phi
+        self.theta=theta
+
+    def _genphi(self, z):
+        return self.phi[z]
+
+    def _gentheta(self, w):
+        return self.phi[w]
+
+    def logp(self, x):
+        z=x[0]
+        w=x[1]
+        phi=self._genphi(z)
+        theta=self._gentheta(w)
+        return Categorical.dist(phi).logp(z)+Categorical.dist(theta).logp(w) 
+        
+
+        

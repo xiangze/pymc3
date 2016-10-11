@@ -158,4 +158,33 @@ class HMM_naive(Discrete):
         return Categorical.dist(phi).logp(z)+Categorical.dist(theta).logp(w) 
         
 
+class HMM(Discrete):
+    def __init__(self,phi,theta):
+        self.phi=phi
+        self.theta=theta
         
+        self.trans=tt.matrix("trans")
+        self.emit=tt.matrix("emit")
+    
+
+    def _scan(self,z,w):
+        def _update(i,j,A):
+            return tt.inc_subtensor(A[i,j],1)
+            
+        ntrans, _ = scan(fn=_update,
+                         sequences=[z[1:],z[:-1]],
+                         outputs_info=[self.trans],
+                         non_sequences=[])
+
+        nemit, _ = scan(fn=_update,
+                        sequences=[z,w],
+                        outputs_info=[self.emit],
+                        non_sequences=[])
+                      
+        return ntrans[-1],nemit[-1]
+        
+    def logp(self, x):
+        z=x[0]
+        w=x[1]
+        self.trans,self.emit=self._scan(z,w)
+        return Multinominal.dist(self.trans).logp(self.theta)+Multinominal.dist(self.trans).logp(self.phi)
